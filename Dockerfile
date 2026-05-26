@@ -4,6 +4,7 @@ WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
+    curl \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
@@ -27,4 +28,4 @@ ENV FLASK_APP=main.py
 ENV PYTHONUNBUFFERED=1
 
 # Run application
-CMD ["python", "main.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120", "main:app"]

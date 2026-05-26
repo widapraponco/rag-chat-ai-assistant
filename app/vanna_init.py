@@ -8,8 +8,17 @@ import mysql.connector
 from pathlib import Path
 
 # Vanna imports
-from vanna.chromadb import ChromaDB
-from vanna.vannadb import VannaDB
+try:
+    from vanna.legacy.chromadb import ChromaDB_VectorStore
+except ImportError:
+    from vanna.chromadb import ChromaDB_VectorStore
+try:
+    from vanna.legacy.vannadb import VannaDB_VectorStore as VannaDB
+except ImportError:
+    try:
+        from vanna.vannadb import VannaDB
+    except ImportError:
+        VannaDB = None
 
 # Embeddings
 from sentence_transformers import SentenceTransformer
@@ -104,10 +113,17 @@ class VannaInstance:
             
             # Initialize ChromaDB backend
             logger.info(f"Initializing ChromaDB at: {self.config.chromadb_path}")
-            chroma = ChromaDB(
-                path=self.config.chromadb_path,
-                metric="cosine"
-            )
+            
+            # Define embedding function using the loaded BGE-M3 model
+            def bge_m3_embedding_function(texts):
+                embeddings = self.embedding_model.encode(texts, normalize_embeddings=True)
+                return embeddings.tolist()
+            
+            chroma = ChromaDB_VectorStore(config={
+                'path': self.config.chromadb_path,
+                'embedding_function': bge_m3_embedding_function,
+                'collection_metadata': {'hnsw:space': 'cosine'}
+            })
             logger.info("✓ ChromaDB initialized")
             
             # Initialize Vanna with ChromaDB for vector storage
@@ -131,7 +147,10 @@ class VannaInstance:
             description: Optional description of what this SQL does
         """
         try:
-            if hasattr(self.vanna, 'add_sql_context'):
+            if hasattr(self.vanna, 'add_ddl'):
+                self.vanna.add_ddl(sql)
+                logger.info(f"Added DDL to ChromaDB: {description or sql[:50]}")
+            elif hasattr(self.vanna, 'add_sql_context'):
                 self.vanna.add_sql_context(sql, description)
                 logger.info(f"Added SQL context: {description or sql[:50]}")
         except Exception as e:
@@ -147,7 +166,8 @@ class VannaInstance:
         """
         try:
             if hasattr(self.vanna, 'add_documentation'):
-                self.vanna.add_documentation(text, metadata)
+                # Pass only 'text' since ChromaDB_VectorStore.add_documentation doesn't use metadata
+                self.vanna.add_documentation(text)
                 logger.info(f"Added documentation: {text[:50]}")
         except Exception as e:
             logger.error(f"Failed to add documentation: {e}")

@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   soravisi-api:
@@ -6,21 +6,24 @@ services:
     container_name: soravisi-api
     ports:
       - "5000:5000"
+    env_file: .env
     environment:
       - FLASK_ENV=production
       - FLASK_DEBUG=False
+
       - FLASK_PORT=5000
+      - SECRET_KEY=${SECRET_KEY:?Secret key required}
       - MYSQL_HOST=${MYSQL_HOST:-45.77.35.173}
       - MYSQL_USER=${MYSQL_USER:-remote-soravisi}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD:?MySQL password required}
-      - MYSQL_DATABASE=${MYSQL_DATABASE:-sv_analytics}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-mitrasdm}
       - MYSQL_PORT=${MYSQL_PORT:-3306}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:?DeepSeek API key required}
       - DEEPSEEK_API_BASE=https://api.deepseek.com/v1
       - DBT_CATALOG_PATH=/app/dbt_analytics/target/catalog.json
     volumes:
       - ./data/chromadb:/app/data/chromadb
-      - ./dbt_analytics:/app/dbt_analytics:ro
+      - ../dbt_analytics:/app/dbt_analytics:ro
     restart: unless-stopped
     networks:
       - soravisi-network

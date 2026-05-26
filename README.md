@@ -1,6 +1,7 @@
 # Soravisi SQL Chat API - Powered by DeepSeek
 
 A Flask-based REST API for natural language to SQL generation and execution using:
+
 - **Vanna 2.0** - SQL AI framework
 - **DeepSeek LLM** - AI model for SQL generation
 - **BGE-M3 Embeddings** - For semantic search over table metadata
@@ -79,6 +80,7 @@ cp .env.example .env
 ```
 
 Edit `.env`:
+
 ```ini
 # Flask
 FLASK_ENV=development
@@ -126,6 +128,7 @@ Server will be available at `http://localhost:5000`
 Open your browser and go to: **http://localhost:5000/chat**
 
 Ask questions like:
+
 - "How many employees are in the system?"
 - "Show me the top 10 users by join date"
 - "What is the schema of the users table?"
@@ -133,11 +136,13 @@ Ask questions like:
 ### API Endpoints
 
 #### Health Check
+
 ```bash
 curl http://localhost:5000/health
 ```
 
 #### Generate SQL (without execution)
+
 ```bash
 curl -X POST http://localhost:5000/api/generate_sql \
   -H "Content-Type: application/json" \
@@ -145,6 +150,7 @@ curl -X POST http://localhost:5000/api/generate_sql \
 ```
 
 Response:
+
 ```json
 {
   "success": true,
@@ -155,6 +161,7 @@ Response:
 ```
 
 #### Execute SQL
+
 ```bash
 curl -X POST http://localhost:5000/api/execute_sql \
   -H "Content-Type: application/json" \
@@ -162,6 +169,7 @@ curl -X POST http://localhost:5000/api/execute_sql \
 ```
 
 Response:
+
 ```json
 {
   "success": true,
@@ -176,6 +184,7 @@ Response:
 ```
 
 #### Chat (Generate + Execute)
+
 ```bash
 curl -X POST http://localhost:5000/api/chat \
   -H "Content-Type: application/json" \
@@ -186,6 +195,7 @@ curl -X POST http://localhost:5000/api/chat \
 ```
 
 Response:
+
 ```json
 {
   "success": true,
@@ -198,11 +208,13 @@ Response:
 ```
 
 #### List Tables
+
 ```bash
 curl http://localhost:5000/api/tables
 ```
 
 #### Get Column Info
+
 ```bash
 curl http://localhost:5000/api/columns/users
 ```
@@ -228,11 +240,13 @@ MAX_QUERY_RESULTS = 1000
 ### Supported Models
 
 #### Embedding Models
+
 - **BAAI/bge-m3** (default) - State-of-the-art multilingual embeddings
 - BAAI/bge-base-en-v1.5
 - sentence-transformers/all-MiniLM-L6-v2
 
 #### LLM Models (DeepSeek)
+
 - **deepseek-chat** (default) - Best for SQL generation
 - deepseek-coder - Better for code tasks
 
@@ -247,30 +261,38 @@ MAX_QUERY_RESULTS = 1000
 ## Troubleshooting
 
 ### DeepSeek API Errors
+
 ```
 Error: Invalid API key
 ```
+
 - Verify your DEEPSEEK_API_KEY in `.env`
 - Check API key format (should start with `sk-`)
 - Ensure account has API access at https://platform.deepseek.com/
 
 ### MySQL Connection Errors
+
 ```
 Error: Access denied for user 'remote-soravisi'
 ```
+
 - Verify MYSQL_PASSWORD is correct
 - Check MySQL host/port connectivity
 - Ensure user has SELECT/INSERT/CREATE permissions
 
 ### Missing ChromaDB
+
 ```
 FileNotFoundError: No such file or directory: './data/chromadb'
 ```
+
 - First run creates the directory automatically
 - If issue persists: `mkdir -p data/chromadb`
 
 ### Embedding Model Download
+
 First run downloads the BGE-M3 model (~600MB):
+
 ```
 Downloading: 100%|██████████| 600M/600M [02:30<00:00, 4.0MB/s]
 ```
@@ -309,6 +331,7 @@ gunicorn -w 4 -b 0.0.0.0:5000 main:app
 ## API Documentation
 
 Full OpenAPI/Swagger documentation available at:
+
 - JSON: `http://localhost:5000/api/swagger.json`
 - UI: `http://localhost:5000/api/docs`
 
@@ -336,8 +359,8 @@ The API automatically loads from dbt catalog:
 
 ```yaml
 # dbt_project.yml
-name: 'dbt_analytics'
-version: '1.0.0'
+name: "dbt_analytics"
+version: "1.0.0"
 
 models:
   dbt_analytics:
@@ -348,6 +371,7 @@ models:
 ```
 
 Generate catalog:
+
 ```bash
 dbt docs generate
 ```
@@ -365,6 +389,7 @@ Logs are output to console with timestamps:
 ```
 
 For file logging, add to `config/settings.py`:
+
 ```python
 logging.FileHandler('app.log')
 ```
@@ -390,6 +415,7 @@ logging.FileHandler('app.log')
 ## Support
 
 For issues:
+
 1. Check logs in console output
 2. Verify API keys in `.env`
 3. Test MySQL connection: `mysql -h host -u user -p database`
