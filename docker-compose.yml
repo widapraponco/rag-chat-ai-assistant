@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  soravisi-api:
+    build: .
+    container_name: soravisi-api
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - FLASK_DEBUG=False
+      - FLASK_PORT=5000
+      - MYSQL_HOST=${MYSQL_HOST:-45.77.35.173}
+      - MYSQL_USER=${MYSQL_USER:-remote-soravisi}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:?MySQL password required}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-sv_analytics}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:?DeepSeek API key required}
+      - DEEPSEEK_API_BASE=https://api.deepseek.com/v1
+      - DBT_CATALOG_PATH=/app/dbt_analytics/target/catalog.json
+    volumes:
+      - ./data/chromadb:/app/data/chromadb
+      - ./dbt_analytics:/app/dbt_analytics:ro
+    restart: unless-stopped
+    networks:
+      - soravisi-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  soravisi-network:
+    driver: bridge
