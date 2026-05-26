@@ -14,7 +14,7 @@ from vanna.integrations.chromadb import ChromaAgentMemory
 
 # Configure your LLM
 llm = OpenAILlmService(
-    api_key="sk-59db20d43706447aac107191eb492fac",
+    api_key="xxxxx",
     base_url="https://api.deepseek.com/v1",
     model="deepseek-v4-flash"
 )
@@ -24,7 +24,7 @@ db_tool = RunSqlTool(
     sql_runner=MySQLRunner(
         host="45.77.35.173",
         user="remote-soravisi",
-        password="!soravisi-123-remote!",
+        password="xxxxx",
         database="mitrasdm",
         port=3306
     )
