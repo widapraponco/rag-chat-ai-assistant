@@ -19,6 +19,9 @@ class Config:
     MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', '')
     MYSQL_DATABASE = os.getenv('MYSQL_DATABASE', 'sv_analytics')
     MYSQL_PORT = int(os.getenv('MYSQL_PORT', 3306))
+
+    HF_TOKEN = os.getenv('HF_TOKEN', '')  # Hugging Face API token
+    HF_API_URL = os.getenv('HF_API_URL', 'https://huggingface.co')  # Hugging Face API base URL
     
     # Vanna settings
     VANNA_EMBEDDING_MODEL = 'BAAI/bge-m3'  # BGE-M3 model

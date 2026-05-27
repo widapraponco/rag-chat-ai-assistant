@@ -13,8 +13,7 @@
 
       body {
         font-family:
-          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
-          Cantarell, sans-serif;
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         min-height: 100vh;
         display: flex;
@@ -42,12 +41,10 @@
         border-radius: 12px 12px 0 0;
         text-align: center;
       }
-
       .header h1 {
         font-size: 24px;
         margin-bottom: 5px;
       }
-
       .header p {
         font-size: 14px;
         opacity: 0.9;
@@ -68,7 +65,6 @@
         gap: 10px;
         animation: slideIn 0.3s ease-out;
       }
-
       @keyframes slideIn {
         from {
           opacity: 0;
@@ -85,75 +81,264 @@
       }
 
       .message-content {
-        max-width: 70%;
+        max-width: 75%;
         padding: 12px 16px;
         border-radius: 12px;
         word-wrap: break-word;
       }
-
       .message.user .message-content {
         background: #667eea;
         color: white;
         border-radius: 12px 4px 12px 12px;
       }
-
       .message.assistant .message-content {
         background: #e9ecef;
         color: #333;
         border-radius: 4px 12px 12px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
       }
 
-      .sql-block {
+      /* ── Streaming indicator ── */
+      .message.assistant.streaming {
+        border-left: 3px solid #667eea;
+        padding-left: 8px;
+      }
+
+      /* ── Status Bar (Vanna 2.0) ── */
+      .status-bar {
+        display: none;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        background: #fff3cd;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        font-size: 13px;
+        color: #856404;
+        animation: fadeIn 0.2s ease;
+      }
+      .status-bar.visible {
+        display: flex;
+      }
+      .status-bar.status-idle {
+        background: #d4edda;
+        color: #155724;
+      }
+      .status-bar.status-error {
+        background: #f8d7da;
+        color: #721c24;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      /* ── Task Tracker (Vanna 2.0) ── */
+      .task-tracker {
+        display: none;
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin-bottom: 10px;
+        font-size: 12px;
+        border: 1px solid #e9ecef;
+        animation: fadeIn 0.2s ease;
+      }
+      .task-tracker.visible {
+        display: block;
+      }
+      .task-tracker-header {
+        font-weight: 600;
+        margin-bottom: 6px;
+        color: #495057;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .task-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 0;
+        color: #6c757d;
+      }
+      .task-item.task-completed {
+        color: #28a745;
+        opacity: 0.7;
+      }
+      .task-item.task-failed {
+        color: #dc3545;
+      }
+      .task-status-icon {
+        font-size: 11px;
+        width: 16px;
+        text-align: center;
+      }
+      .task-title {
+        flex: 1;
+      }
+
+      /* ── Komponen dari Vanna 2.0 ── */
+
+      /* Teks biasa dari agent */
+      .comp-text {
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .comp-text p {
+        margin-bottom: 8px;
+      }
+      .comp-text p:last-child {
+        margin-bottom: 0;
+      }
+      .comp-text strong {
+        font-weight: 600;
+      }
+      .comp-text code {
+        background: #f1f3f5;
+        padding: 2px 5px;
+        border-radius: 3px;
+        font-family: "Courier New", monospace;
+        font-size: 12px;
+      }
+
+      /* Blok SQL / code */
+      .comp-sql-wrapper {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .comp-sql-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #888;
+      }
+      .comp-sql {
         background: #1e1e1e;
         color: #d4d4d4;
-        padding: 12px;
+        padding: 12px 14px;
         border-radius: 8px;
         font-family: "Courier New", monospace;
         font-size: 12px;
         overflow-x: auto;
-        margin-top: 10px;
+        white-space: pre;
+        line-height: 1.5;
+      }
+      .copy-btn {
+        align-self: flex-start;
+        padding: 4px 10px;
+        background: #6c757d;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 11px;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .copy-btn:hover {
+        background: #5a6268;
+      }
+      .copy-btn.copied {
+        background: #28a745;
       }
 
-      .results-block {
-        background: #f1f3f5;
+      /* Tabel hasil query */
+      .comp-table-wrapper {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .comp-table-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #888;
+      }
+      .comp-table-scroll {
+        overflow-x: auto;
+        border-radius: 6px;
         border: 1px solid #dee2e6;
-        padding: 12px;
-        border-radius: 8px;
-        margin-top: 10px;
-        font-size: 13px;
       }
-
-      .results-block table {
+      .comp-table {
         width: 100%;
         border-collapse: collapse;
         font-size: 12px;
+        background: white;
       }
-
-      .results-block th,
-      .results-block td {
-        padding: 8px;
-        text-align: left;
-        border-bottom: 1px solid #dee2e6;
-      }
-
-      .results-block th {
+      .comp-table th {
         background: #e9ecef;
+        padding: 8px 10px;
+        text-align: left;
         font-weight: 600;
+        border-bottom: 2px solid #dee2e6;
+        white-space: nowrap;
+      }
+      .comp-table td {
+        padding: 7px 10px;
+        border-bottom: 1px solid #f1f3f5;
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .comp-table tr:last-child td {
+        border-bottom: none;
+      }
+      .comp-table tr:hover td {
+        background: #f8f9fa;
+      }
+      .row-count {
+        font-size: 11px;
+        color: #888;
+        text-align: right;
       }
 
+      /* Error */
+      .comp-error {
+        background: #f8d7da;
+        color: #721c24;
+        padding: 10px 14px;
+        border-radius: 6px;
+        border-left: 4px solid #f5c6cb;
+        font-size: 13px;
+      }
+
+      /* Spinner untuk status */
+      .spinner {
+        width: 14px;
+        height: 14px;
+        border: 2px solid #856404;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+        flex-shrink: 0;
+      }
+      .status-idle .spinner {
+        border-color: #155724;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Input area */
       .input-area {
-        padding: 20px;
+        padding: 16px 20px;
         border-top: 1px solid #dee2e6;
         display: flex;
         gap: 10px;
+        align-items: center;
       }
-
-      .input-group {
-        flex: 1;
-        display: flex;
-        gap: 10px;
-      }
-
       input[type="text"] {
         flex: 1;
         padding: 12px 16px;
@@ -161,16 +346,20 @@
         border-radius: 8px;
         font-size: 14px;
         font-family: inherit;
-        transition: all 0.2s;
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
       }
-
       input[type="text"]:focus {
         outline: none;
         border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
       }
-
-      button {
+      input[type="text"]:disabled {
+        background: #e9ecef;
+        cursor: not-allowed;
+      }
+      .send-btn {
         padding: 12px 24px;
         background: #667eea;
         color: white;
@@ -179,106 +368,63 @@
         font-size: 14px;
         font-weight: 600;
         cursor: pointer;
-        transition: all 0.2s;
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        transition:
+          background 0.2s,
+          transform 0.1s,
+          box-shadow 0.2s;
+        white-space: nowrap;
       }
-
-      button:hover {
+      .send-btn:hover:not(:disabled) {
         background: #764ba2;
-        transform: translateY(-2px);
+        transform: translateY(-1px);
         box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
       }
-
-      button:active {
+      .send-btn:active:not(:disabled) {
         transform: translateY(0);
       }
-
-      button:disabled {
+      .send-btn:disabled {
         background: #ccc;
         cursor: not-allowed;
-        transform: none;
       }
 
-      .checkbox-group {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-left: auto;
-      }
-
-      .checkbox-group label {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 14px;
-        cursor: pointer;
-      }
-
-      .checkbox-group input[type="checkbox"] {
-        cursor: pointer;
-        width: 18px;
-        height: 18px;
-      }
-
-      .loading {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #666;
-      }
-
-      .spinner {
-        width: 16px;
-        height: 16px;
-        border: 2px solid #667eea;
-        border-top-color: transparent;
-        border-radius: 50%;
-        animation: spin 0.6s linear infinite;
-      }
-
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      .error {
-        background: #f8d7da;
-        color: #721c24;
+      /* Cancel button saat streaming */
+      .cancel-btn {
         padding: 12px 16px;
+        background: #dc3545;
+        color: white;
+        border: none;
         border-radius: 8px;
-        border-left: 4px solid #f5c6cb;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .cancel-btn:hover {
+        background: #c82333;
       }
 
-      .copy-button {
-        background: #6c757d;
-        padding: 6px 12px;
-        font-size: 12px;
-        margin-top: 8px;
-      }
-
-      .copy-button:hover {
-        background: #5a6268;
-      }
-
-      .info-section {
-        padding: 20px;
+      /* Welcome */
+      .welcome {
         text-align: center;
         color: #666;
+        padding: 20px;
       }
-
-      .info-section h2 {
+      .welcome h2 {
         color: #333;
         margin-bottom: 10px;
+        font-size: 18px;
       }
-
-      .info-section p {
+      .welcome p {
         font-size: 14px;
-        margin-bottom: 10px;
+        margin-bottom: 6px;
+      }
+      .welcome .examples {
+        font-size: 12px;
+        color: #999;
+        margin-top: 10px;
       }
     </style>
+    <base target="_blank" />
   </head>
   <body>
     <div class="container">
@@ -291,32 +437,27 @@
       </div>
 
       <div class="chat-area" id="chatArea">
-        <div class="info-section">
+        <div class="welcome">
           <h2>Welcome to Soravisi SQL Chat</h2>
           <p>Ask me questions about your database in natural language.</p>
-          <p style="font-size: 12px; color: #999">
-            Examples: "How many employees are there?", "Show me top 10 users by
-            join date"
+          <p>I'll generate and run the SQL query automatically.</p>
+          <p class="examples">
+            Examples: "How many employees are there?" &nbsp;·&nbsp; "Show me top
+            10 users by join date"
           </p>
         </div>
       </div>
 
       <div class="input-area">
-        <div class="input-group">
-          <input
-            type="text"
-            id="questionInput"
-            placeholder="Ask a question about the database..."
-            onkeypress="handleKeyPress(event)"
-          />
-          <button onclick="sendMessage()" id="sendButton"> Send </button>
-        </div>
-        <div class="checkbox-group">
-          <label>
-            <input type="checkbox" id="executeCheckbox" checked />
-            Execute
-          </label>
-        </div>
+        <input
+          type="text"
+          id="questionInput"
+          placeholder="Ask a question about the database..."
+          onkeypress="handleKeyPress(event)"
+        />
+        <button class="send-btn" onclick="sendMessage()" id="sendButton"
+          >Send</button
+        >
       </div>
     </div>
 
@@ -324,174 +465,519 @@
       const chatArea = document.getElementById("chatArea");
       const questionInput = document.getElementById("questionInput");
       const sendButton = document.getElementById("sendButton");
-      const executeCheckbox = document.getElementById("executeCheckbox");
-
       let isLoading = false;
+      let abortController = null;
+
+      // ── Utilities ────────────────────────────────────────────────────────────
+
+      function escapeHtml(str) {
+        return String(str).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#039;",
+            })[c],
+        );
+      }
 
       function scrollToBottom() {
         chatArea.scrollTop = chatArea.scrollHeight;
       }
 
-      function addMessage(text, isUser = false, isHTML = false) {
-        const messageDiv = document.createElement("div");
-        messageDiv.className = `message ${isUser ? "user" : "assistant"}`;
+      // ── Parse markdown sederhana ─────────────────────────────────────────────
 
-        const contentDiv = document.createElement("div");
-        contentDiv.className = "message-content";
+      function parseMarkdown(text) {
+        if (!text) return "";
+        return text
+          .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+          .replace(/\*(.*?)\*/g, "<em>$1</em>")
+          .replace(/`([^`]+)`/g, "<code>$1</code>")
+          .replace(/^\d+\.\s+(.*)$/gm, "<li>$1</li>")
+          .replace(/(<li>.*<\/li>\n?)+/g, "<ol>$&</ol>")
+          .replace(/\n/g, "<br>");
+      }
 
-        if (isHTML) {
-          contentDiv.innerHTML = text;
-        } else {
-          contentDiv.textContent = text;
-        }
+      // ── DOM helpers ───────────────────────────────────────────────────────────
 
-        messageDiv.appendChild(contentDiv);
-        chatArea.appendChild(messageDiv);
+      function addUserMessage(text) {
+        const div = document.createElement("div");
+        div.className = "message user";
+        div.innerHTML = `<div class="message-content">${escapeHtml(text)}</div>`;
+        chatArea.appendChild(div);
         scrollToBottom();
       }
 
-      function addLoading() {
-        const messageDiv = document.createElement("div");
-        messageDiv.className = "message assistant";
-        messageDiv.id = "loadingMessage";
+      function createAssistantContainer(id) {
+        const div = document.createElement("div");
+        div.className = "message assistant streaming";
+        div.id = id;
+        chatArea.appendChild(div);
+        scrollToBottom();
+        return div;
+      }
 
-        const contentDiv = document.createElement("div");
-        contentDiv.className = "message-content loading";
-        contentDiv.innerHTML = '<div class="spinner"></div> Generating SQL...';
-
-        messageDiv.appendChild(contentDiv);
-        chatArea.appendChild(messageDiv);
+      function addErrorMessage(text, containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) {
+          const div = document.createElement("div");
+          div.className = "message assistant";
+          div.innerHTML = `<div class="message-content"><div class="comp-error">${escapeHtml(text)}</div></div>`;
+          chatArea.appendChild(div);
+          scrollToBottom();
+          return;
+        }
+        const el = document.createElement("div");
+        el.className = "comp-error";
+        el.textContent = text;
+        container.querySelector(".message-content")?.appendChild(el) ||
+          container.appendChild(el);
         scrollToBottom();
       }
 
-      function removeLoading() {
-        const loadingMsg = document.getElementById("loadingMessage");
-        if (loadingMsg) loadingMsg.remove();
+      // ── Status Bar (Vanna 2.0) ───────────────────────────────────────────────
+
+      function getOrCreateStatusBar() {
+        let el = document.getElementById("vanna-status-bar");
+        if (!el) {
+          el = document.createElement("div");
+          el.id = "vanna-status-bar";
+          el.className = "status-bar";
+          // Insert before first message or at top of chat-area
+          const firstMsg = chatArea.querySelector(".message");
+          if (firstMsg) {
+            chatArea.insertBefore(el, firstMsg);
+          } else {
+            chatArea.appendChild(el);
+          }
+        }
+        return el;
       }
 
-      function formatSQL(sql) {
-        return `<div class="sql-block">${escapeHtml(sql)}</div>`;
+      function renderStatusBar(status, message, detail) {
+        const el = getOrCreateStatusBar();
+        const icon =
+          status === "working"
+            ? '<span class="spinner"></span>'
+            : status === "idle"
+              ? "✅"
+              : status === "error"
+                ? "❌"
+                : "ℹ️";
+
+        el.className = `status-bar visible status-${status}`;
+        el.innerHTML = `
+          ${icon}
+          <span>${escapeHtml(message || "")}</span>
+          ${detail ? `<span style="opacity:0.7;margin-left:4px;">— ${escapeHtml(detail)}</span>` : ""}
+        `;
+        scrollToBottom();
+
+        if (status === "idle") {
+          setTimeout(() => {
+            el.classList.remove("visible");
+          }, 2500);
+        }
       }
 
-      function formatResults(results) {
-        if (!results || results.length === 0) {
-          return '<div class="results-block">No results found</div>';
+      function hideStatusBar() {
+        const el = document.getElementById("vanna-status-bar");
+        if (el) el.classList.remove("visible");
+      }
+
+      // ── Task Tracker (Vanna 2.0) ─────────────────────────────────────────────
+
+      const taskMap = new Map();
+
+      function getOrCreateTaskTracker() {
+        let el = document.getElementById("vanna-task-tracker");
+        if (!el) {
+          el = document.createElement("div");
+          el.id = "vanna-task-tracker";
+          el.className = "task-tracker";
+          const statusBar = document.getElementById("vanna-status-bar");
+          if (statusBar && statusBar.nextSibling) {
+            chatArea.insertBefore(el, statusBar.nextSibling);
+          } else {
+            chatArea.appendChild(el);
+          }
+        }
+        return el;
+      }
+
+      function renderTaskTracker(operation, task, taskId, status) {
+        const el = getOrCreateTaskTracker();
+
+        if (operation === "add_task" && task) {
+          taskMap.set(task.id, { ...task, status: task.status || "pending" });
+        } else if (operation === "update_task" && taskId) {
+          const existing = taskMap.get(taskId);
+          if (existing) {
+            existing.status = status;
+            taskMap.set(taskId, existing);
+          }
+        } else if (operation === "remove_task" && taskId) {
+          taskMap.delete(taskId);
         }
 
-        const keys = Object.keys(results[0]);
-        let html = '<div class="results-block"><table>';
-
-        // Header
-        html += "<thead><tr>";
-        keys.forEach((key) => {
-          html += `<th>${escapeHtml(key)}</th>`;
-        });
-        html += "</tr></thead><tbody>";
-
-        // Rows
-        results.forEach((row) => {
-          html += "<tr>";
-          keys.forEach((key) => {
-            html += `<td>${escapeHtml(String(row[key]))}</td>`;
-          });
-          html += "</tr>";
-        });
-
-        html += "</tbody></table></div>";
-        return html;
-      }
-
-      function escapeHtml(text) {
-        const map = {
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#039;",
-        };
-        return text.replace(/[&<>"']/g, (m) => map[m]);
-      }
-
-      async function sendMessage() {
-        const question = questionInput.value.trim();
-
-        if (!question) {
-          alert("Please enter a question");
+        if (taskMap.size === 0) {
+          el.classList.remove("visible");
           return;
         }
 
-        if (isLoading) return;
+        const tasks = Array.from(taskMap.values());
+        const completedCount = tasks.filter(
+          (t) => t.status === "completed",
+        ).length;
 
+        el.classList.add("visible");
+        el.innerHTML = `
+          <div class="task-tracker-header">Tasks (${completedCount}/${tasks.length})</div>
+          ${tasks
+            .map(
+              (t) => `
+            <div class="task-item task-${t.status}">
+              <span class="task-status-icon">
+                ${t.status === "completed" ? "✅" : t.status === "failed" ? "❌" : "⏳"}
+              </span>
+              <span class="task-title">${escapeHtml(t.title)}</span>
+            </div>
+          `,
+            )
+            .join("")}
+        `;
+        scrollToBottom();
+      }
+
+      function hideTaskTracker() {
+        const el = document.getElementById("vanna-task-tracker");
+        if (el) {
+          el.style.opacity = "0";
+          setTimeout(() => {
+            el.classList.remove("visible");
+            el.style.opacity = "1";
+          }, 300);
+        }
+      }
+
+      // ── Component Renderers (Vanna 2.0 SSE) ──────────────────────────────────
+
+      function handleComponent(component, containerId) {
+        /**
+         * Route setiap komponen Vanna 2.0 ke renderer yang sesuai.
+         * component bisa berupa root object atau rich_component langsung.
+         */
+        const rc = component.rich_component || component;
+        const type = rc.type || component.type;
+
+        switch (type) {
+          case "status_bar_update":
+            renderStatusBar(rc.status, rc.message, rc.detail);
+            break;
+
+          case "task_tracker_update":
+            renderTaskTracker(rc.operation, rc.task, rc.task_id, rc.status);
+            break;
+
+          case "chat_input_update":
+            if (rc.placeholder !== undefined) {
+              questionInput.placeholder = rc.placeholder;
+            }
+            if (rc.disabled !== undefined) {
+              questionInput.disabled = rc.disabled;
+            }
+            break;
+
+          case "text":
+            renderText(rc, containerId);
+            break;
+
+          case "code":
+          case "sql":
+            renderCode(rc, containerId);
+            break;
+
+          case "table":
+            renderTable(rc, containerId);
+            break;
+
+          case "error":
+            renderError(rc, containerId);
+            break;
+
+          default:
+            console.warn("Unknown component type:", type, rc);
+            if (rc.content || rc.text) {
+              appendFallbackText(rc.content || rc.text, containerId);
+            }
+        }
+      }
+
+      function getMessageContent(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return null;
+        let content = container.querySelector(".message-content");
+        if (!content) {
+          content = document.createElement("div");
+          content.className = "message-content";
+          container.appendChild(content);
+        }
+        return content;
+      }
+
+      function renderText(rc, containerId) {
+        const content = getMessageContent(containerId);
+        if (!content) return;
+
+        let textEl = content.querySelector(".comp-text");
+        if (!textEl) {
+          textEl = document.createElement("div");
+          textEl.className = "comp-text";
+          content.appendChild(textEl);
+        }
+
+        const text = rc.content || "";
+        if (rc.markdown) {
+          textEl.innerHTML = parseMarkdown(text);
+        } else {
+          textEl.textContent = text;
+        }
+        scrollToBottom();
+      }
+
+      function renderCode(rc, containerId) {
+        const content = getMessageContent(containerId);
+        if (!content) return;
+
+        const code = rc.content || rc.code || rc.sql || "";
+        const language = rc.code_language || "sql";
+        const id = "sql-" + Math.random().toString(36).slice(2);
+
+        const wrapper = document.createElement("div");
+        wrapper.className = "comp-sql-wrapper";
+        wrapper.innerHTML = `
+          <span class="comp-sql-label">${escapeHtml(language.toUpperCase())}</span>
+          <pre class="comp-sql" id="${id}">${escapeHtml(code)}</pre>
+          <button class="copy-btn" onclick="copySql('${id}', this)">Copy</button>
+        `;
+        content.appendChild(wrapper);
+        scrollToBottom();
+      }
+
+      function renderTable(rc, containerId) {
+        const content = getMessageContent(containerId);
+        if (!content) return;
+
+        const rows = rc.rows || rc.data || [];
+        if (!rows.length) {
+          const emptyEl = document.createElement("div");
+          emptyEl.className = "comp-text";
+          emptyEl.textContent = "Query executed — no rows returned.";
+          content.appendChild(emptyEl);
+          scrollToBottom();
+          return;
+        }
+
+        const keys = rc.columns || Object.keys(rows[0]);
+        const thead = keys.map((k) => `<th>${escapeHtml(k)}</th>`).join("");
+        const tbody = rows
+          .map(
+            (row) =>
+              "<tr>" +
+              keys
+                .map(
+                  (k) =>
+                    `<td title="${escapeHtml(String(row[k]))}">${escapeHtml(String(row[k]))}</td>`,
+                )
+                .join("") +
+              "</tr>",
+          )
+          .join("");
+
+        const wrapper = document.createElement("div");
+        wrapper.className = "comp-table-wrapper";
+        wrapper.innerHTML = `
+          <span class="comp-table-label">Query Results</span>
+          <div class="comp-table-scroll">
+            <table class="comp-table">
+              <thead><tr>${thead}</tr></thead>
+              <tbody>${tbody}</tbody>
+            </table>
+          </div>
+          <span class="row-count">${rows.length} row${rows.length !== 1 ? "s" : ""}</span>
+        `;
+        content.appendChild(wrapper);
+        scrollToBottom();
+      }
+
+      function renderError(rc, containerId) {
+        const content = getMessageContent(containerId);
+        if (!content) return;
+
+        const msg = rc.content || rc.message || "An error occurred";
+        const el = document.createElement("div");
+        el.className = "comp-error";
+        el.textContent = msg;
+        content.appendChild(el);
+        scrollToBottom();
+      }
+
+      function appendFallbackText(text, containerId) {
+        const content = getMessageContent(containerId);
+        if (!content) return;
+        const el = document.createElement("div");
+        el.className = "comp-text";
+        el.textContent = text;
+        content.appendChild(el);
+        scrollToBottom();
+      }
+
+      // ── Copy SQL ─────────────────────────────────────────────────────────────
+
+      function copySql(elementId, btn) {
+        const text = document.getElementById(elementId)?.textContent || "";
+        navigator.clipboard.writeText(text).then(() => {
+          btn.textContent = "Copied!";
+          btn.classList.add("copied");
+          setTimeout(() => {
+            btn.textContent = "Copy";
+            btn.classList.remove("copied");
+          }, 2000);
+        });
+      }
+
+      // ── Main: SSE Streaming sendMessage ──────────────────────────────────────
+
+      async function sendMessage() {
+        const question = questionInput.value.trim();
+        if (!question || isLoading) return;
+
+        // Reset state
         isLoading = true;
-        sendButton.disabled = true;
+        abortController = new AbortController();
+        taskMap.clear();
+        hideStatusBar();
+        hideTaskTracker();
 
-        // Clear input
+        // UI: disable input, show cancel button
         questionInput.value = "";
+        questionInput.disabled = true;
+        sendButton.textContent = "Cancel";
+        sendButton.className = "cancel-btn";
+        sendButton.onclick = cancelStream;
 
         // Add user message
-        addMessage(question, true);
-        addLoading();
+        addUserMessage(question);
+
+        // Create empty assistant container for streaming
+        const assistantId = "msg-" + Date.now();
+        createAssistantContainer(assistantId);
 
         try {
-          const response = await fetch("/api/chat", {
+          const res = await fetch("/api/chat/stream", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              question: question,
-              execute: executeCheckbox.checked,
-            }),
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question }),
+            signal: abortController.signal,
           });
 
-          removeLoading();
-
-          const data = await response.json();
-
-          if (data.success) {
-            // Add SQL
-            if (data.sql) {
-              addMessage(
-                `<strong>Generated SQL:</strong>${formatSQL(data.sql)}`,
-                false,
-                true,
-              );
-            }
-
-            // Add results if executed
-            if (data.executed && data.results) {
-              addMessage(
-                `<strong>Results (${data.results.length} rows):</strong>${formatResults(data.results)}`,
-                false,
-                true,
-              );
-            } else if (executeCheckbox.checked) {
-              addMessage("Query executed but returned no results", false);
-            }
-          } else {
-            addMessage(`Error: ${data.error}`, false);
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
           }
-        } catch (error) {
-          removeLoading();
-          addMessage(`Network error: ${error.message}`, false);
+
+          if (!res.body) {
+            throw new Error("Response body is null");
+          }
+
+          // Read SSE stream
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            // Process complete lines
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const dataStr = line.slice(6).trim();
+
+                if (dataStr === "[DONE]") {
+                  console.log("✅ Stream complete");
+                  continue;
+                }
+
+                try {
+                  const component = JSON.parse(dataStr);
+                  handleComponent(component, assistantId);
+                } catch (e) {
+                  console.error("Failed to parse SSE data:", dataStr, e);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          if (err.name === "AbortError") {
+            addErrorMessage("⏹️ Stream cancelled by user", assistantId);
+          } else {
+            console.error("Stream error:", err);
+            addErrorMessage(`Error: ${err.message}`, assistantId);
+          }
         } finally {
+          // Cleanup
           isLoading = false;
-          sendButton.disabled = false;
+          abortController = null;
+
+          // Reset button
+          sendButton.textContent = "Send";
+          sendButton.className = "send-btn";
+          sendButton.onclick = sendMessage;
+
+          // Re-enable input
+          questionInput.disabled = false;
           questionInput.focus();
+
+          // Remove streaming indicator
+          const assistantEl = document.getElementById(assistantId);
+          if (assistantEl) {
+            assistantEl.classList.remove("streaming");
+          }
+
+          // Hide overlays after delay
+          setTimeout(() => {
+            hideStatusBar();
+            hideTaskTracker();
+          }, 2000);
         }
       }
 
-      function handleKeyPress(event) {
-        if (event.key === "Enter" && !event.shiftKey) {
-          event.preventDefault();
-          sendMessage();
+      function cancelStream() {
+        if (abortController) {
+          abortController.abort();
         }
       }
 
-      // Focus input on load
-      window.addEventListener("load", () => {
-        questionInput.focus();
-      });
+      function handleKeyPress(e) {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          if (isLoading) {
+            cancelStream();
+          } else {
+            sendMessage();
+          }
+        }
+      }
+
+      window.addEventListener("load", () => questionInput.focus());
     </script>
   </body>
 </html>

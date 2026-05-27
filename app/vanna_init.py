@@ -1,308 +1,256 @@
 """
-Vanna 2.0 initialization with BGE-M3 embeddings and ChromaDB
+Vanna 2.0 initialization with BGE-M3 embeddings, ChromaDB, DeepSeek LLM, and MySQL
 """
-import os
+import json
 import logging
-from typing import Optional
-import mysql.connector
-from pathlib import Path
+import asyncio
 import requests
+from pathlib import Path
+from typing import AsyncGenerator
 
-# Vanna imports
-try:
-    from vanna.legacy.chromadb import ChromaDB_VectorStore
-except ImportError:
-    from vanna.chromadb import ChromaDB_VectorStore
-try:
-    from vanna.legacy.vannadb import VannaDB_VectorStore as VannaDB
-except ImportError:
-    try:
-        from vanna.vannadb import VannaDB
-    except ImportError:
-        VannaDB = None
+import httpx
 
-# Embeddings
-# from sentence_transformers import SentenceTransformer
+# Vanna 2.0 core
+from vanna import Agent
+from vanna.core.llm import LlmService, LlmRequest, LlmResponse
+from vanna.core.llm.models import LlmStreamChunk
+from vanna.core.registry import ToolRegistry, ToolSchema
+from vanna.core.user import UserResolver, User, RequestContext
 
-# DeepSeek LLM
-from openai import OpenAI as DeepSeekClient  # DeepSeek uses OpenAI-compatible API
+# Vanna 2.0 tools
+from vanna.tools import RunSqlTool
+from vanna.tools.agent_memory import (
+    SaveQuestionToolArgsTool,
+    SearchSavedCorrectToolUsesTool,
+    SaveTextMemoryTool,
+)
+
+# Vanna 2.0 integrations
+from vanna.integrations.mysql import MySQLRunner
+from vanna.integrations.chromadb import ChromaAgentMemory
 
 logger = logging.getLogger(__name__)
 
+from vanna.core.tool import Tool, ToolSchema
 
-class VannaConfig:
-    """Configuration for Vanna with BGE-M3 embeddings"""
+# Custom retrieval tool
+class GetDdlFromMemoryTool(Tool):
+    """Retrieve table DDL dari ChromaDB memory berdasarkan table name atau description."""
     
+    @property
+    def name(self) -> str:
+        return "GetDdlFromMemory"
+    
+    @property
+    def description(self) -> str:
+        return "Search dan retrieve table DDL/schema dari memory berdasarkan keyword"
+    
+    def get_args_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Table name atau deskripsi yang dicari (contoh: 'dim_attendance_performance columns')"
+                }
+            },
+            "required": ["query"]
+        }
+    
+    async def execute(self, query: str, **kwargs) -> str:
+        """Execute tool"""
+        try:
+            # Akses memory dari agent
+            memory = kwargs.get("agent_memory")
+            if not memory or not hasattr(memory, '_collection'):
+                return "Error: Memory not accessible"
+            
+            collection = memory._collection
+            results = collection.query(
+                query_texts=[query],
+                n_results=5,
+                where={"type": "ddl"}
+            )
+            
+            docs = results.get('documents', [[]])[0]
+            if not docs:
+                return f"Tidak ada DDL ditemukan untuk query: {query}"
+            
+            return "\n\n".join(docs[:3])  # Return top 3 results
+        except Exception as e:
+            return f"Error retrieving DDL: {e}"
+# ─────────────────────────────────────────────
+# 1. DeepSeek LlmService
+#
+# DeepSeek pakai OpenAI-compatible API, tapi mengembalikan nested dict
+# di field 'usage' (prompt_tokens_details, completion_tokens_details)
+# yang menyebabkan ValidationError di Vanna 2.0 LlmResponse.
+# Ref: https://github.com/vanna-ai/vanna/issues/1037
+# Workaround: strip nested fields sebelum konstruksi LlmResponse.
+# ─────────────────────────────────────────────
+
+class DeepSeekLlmService(LlmService):
+    """LlmService implementation untuk DeepSeek via OpenAI-compatible API."""
+
     def __init__(
         self,
-        mysql_host: str,
-        mysql_user: str,
-        mysql_password: str,
-        mysql_database: str,
-        mysql_port: int = 3306,
-        hf_token: str = '',
-        chromadb_path: str = './data/chromadb',
-        embedding_model: str = 'BAAI/bge-m3',
-        hf_api_url: str = "https://huggingface.co",
+        api_key: str,
+        model: str = "deepseek-chat",
+        base_url: str = "https://api.deepseek.com/v1",
     ):
-        """Initialize Vanna configuration"""
-        self.mysql_host = mysql_host
-        self.mysql_user = mysql_user
-        self.mysql_password = mysql_password
-        self.mysql_database = mysql_database
-        self.mysql_port = mysql_port
-        self.chromadb_path = chromadb_path
-        self.embedding_model = embedding_model
-        self.hf_api_url = hf_api_url
-        self.hf_token = hf_token
-        
-        # Create chromadb path if doesn't exist
-        Path(chromadb_path).mkdir(parents=True, exist_ok=True)
-    
-    def get_mysql_connection_string(self) -> str:
-        """Build MySQL connection string"""
-        return f"mysql+mysqlconnector://{self.mysql_user}:{self.mysql_password}@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
-    
-    def test_mysql_connection(self) -> bool:
-        """Test MySQL connection"""
-        try:
-            conn = mysql.connector.connect(
-                host=self.mysql_host,
-                user=self.mysql_user,
-                password=self.mysql_password,
-                database=self.mysql_database,
-                port=self.mysql_port
-            )
-            conn.close()
-            logger.info("✓ MySQL connection successful")
-            return True
-        except Exception as e:
-            logger.error(f"✗ MySQL connection failed: {e}")
-            return False
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url.rstrip("/")
 
+    def _headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
-class VannaInstance:
-    """Vanna instance with BGE-M3, ChromaDB, and DeepSeek LLM integration"""
-    
-    def __init__(self, config: VannaConfig, deepseek_api_key: str = None, deepseek_api_base: str = None):
-        """Initialize Vanna with embeddings, ChromaDB, and DeepSeek LLM"""
-        self.config = config
-        self.embedding_model = None
-        self.vanna = None
-        self.deepseek_client = None
-        self.deepseek_api_key = deepseek_api_key
-        self.deepseek_api_base = deepseek_api_base or 'https://api.deepseek.com/v1'
-        
-        self._initialize()
-    
-    def _initialize(self):
-        """Initialize Vanna components"""
-        try:
-            logger.info("Initializing Vanna with BGE-M3 embeddings and DeepSeek LLM...")
-            
-            # Load BGE-M3 embedding model
-            # logger.info(f"Loading embedding model: {self.config.embedding_model}")
-            # self.embedding_model = SentenceTransformer(self.config.embedding_model)
-            # logger.info("✓ BGE-M3 embedding model loaded")
-            # logger.info(f"Initializing Cloud Embedding API: {self.config.embedding_model}")
-            # self.embedding_model = OpenAI_Embeddings(config={
-            #     'api_key': 'SK-ANDA-DI-SINI', 
-            #     'model': 'text-embedding-3-small'
-            # })
-            # logger.info("✓ text-embedding-3-small API initialized (No local RAM used)")
-            
-            # Initialize DeepSeek client if API key provided
-            if self.deepseek_api_key:
-                logger.info("Initializing DeepSeek LLM client...")
-                self.deepseek_client = DeepSeekClient(
-                    api_key=self.deepseek_api_key,
-                    base_url=self.deepseek_api_base
-                )
-                logger.info("✓ DeepSeek LLM client initialized")
-            else:
-                logger.warning("No DeepSeek API key provided - LLM functionality will be limited")
-            
-            # Initialize ChromaDB backend
-            logger.info(f"Initializing ChromaDB at: {self.config.chromadb_path}")
-            
-            # Define embedding function using the loaded BGE-M3 model
-            def bge_m3_embedding_function(texts):
-                payload = {"inputs": texts, "options": {"wait_for_model": True}}
-                headers = {"Authorization": f"Bearer {self.config.hf_token}"}
-                response = requests.post(self.config.hf_api_url, headers=headers, json=payload)
-                return response.json()
-                # embeddings = self.embedding_model.encode(texts, normalize_embeddings=True)
-                # return embeddings.tolist()
-            
-            chroma = ChromaDB_VectorStore(config={
-                'path': self.config.chromadb_path,
-                'embedding_function': bge_m3_embedding_function,
-                'collection_metadata': {'hnsw:space': 'cosine'}
-            })
-            logger.info("✓ ChromaDB initialized")
-            
-            # Initialize Vanna with ChromaDB for vector storage
-            self.vanna = chroma
-            logger.info("✓ Vanna instance created with ChromaDB backend and DeepSeek LLM")
-            
-            # Test MySQL connection
-            if not self.config.test_mysql_connection():
-                logger.warning("MySQL connection test failed - check credentials")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize Vanna: {e}")
-            raise
-    
-    def add_sql_context(self, sql: str, description: str = None):
-        """
-        Add SQL context to Vanna knowledge base
-        
-        Args:
-            sql: SQL statement or DDL
-            description: Optional description of what this SQL does
-        """
-        try:
-            if hasattr(self.vanna, 'add_ddl'):
-                self.vanna.add_ddl(sql)
-                logger.info(f"Added DDL to ChromaDB: {description or sql[:50]}")
-            elif hasattr(self.vanna, 'add_sql_context'):
-                self.vanna.add_sql_context(sql, description)
-                logger.info(f"Added SQL context: {description or sql[:50]}")
-        except Exception as e:
-            logger.error(f"Failed to add SQL context: {e}")
-    
-    def add_documentation(self, text: str, metadata: dict = None):
-        """
-        Add documentation to knowledge base
-        
-        Args:
-            text: Documentation text
-            metadata: Optional metadata
-        """
-        try:
-            if hasattr(self.vanna, 'add_documentation'):
-                # Pass only 'text' since ChromaDB_VectorStore.add_documentation doesn't use metadata
-                self.vanna.add_documentation(text)
-                logger.info(f"Added documentation: {text[:50]}")
-        except Exception as e:
-            logger.error(f"Failed to add documentation: {e}")
-    
-    def generate_sql(self, question: str) -> Optional[str]:
-        """
-        Generate SQL from natural language question using DeepSeek
-        
-        Args:
-            question: Natural language question
-            
-        Returns:
-            Generated SQL string or None
-        """
-        try:
-            if not self.deepseek_client:
-                logger.error("DeepSeek client not initialized - no API key provided")
-                return None
-            
-            logger.info(f"Generating SQL for: {question}")
-            
-            # Create prompt for DeepSeek
-            system_prompt = "You are a SQL expert. Generate SQL queries based on natural language questions. Return only the SQL query without any markdown formatting or explanations."
-            
-            response = self.deepseek_client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": question}
-                ],
-                temperature=0.3,
-                max_tokens=500
-            )
-            
-            sql = response.choices[0].message.content.strip()
-            logger.info(f"Generated SQL: {sql}")
-            return sql
-        except Exception as e:
-            logger.error(f"Failed to generate SQL: {e}")
-            return None
-    
-    def execute_sql(self, sql: str) -> Optional[list]:
-        """
-        Execute SQL query against MySQL database
-        
-        Args:
-            sql: SQL query to execute
-            
-        Returns:
-            Query results as list of dicts or None
-        """
-        try:
-            conn = mysql.connector.connect(
-                host=self.config.mysql_host,
-                user=self.config.mysql_user,
-                password=self.config.mysql_password,
-                database=self.config.mysql_database,
-                port=self.config.mysql_port
-            )
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute(sql)
-            results = cursor.fetchall()
-            cursor.close()
-            conn.close()
-            
-            logger.info(f"Query executed successfully, returned {len(results)} rows")
-            return results
-        except Exception as e:
-            logger.error(f"Failed to execute SQL: {e}")
-            return None
-    
-    def get_embedding(self, text: str) -> list:
-        """
-        Get embedding for text using BGE-M3
-        
-        Args:
-            text: Text to embed
-            
-        Returns:
-            Embedding vector
-        """
-        try:
-            embeddings = self.embedding_model.encode(text, normalize_embeddings=True)
-            return embeddings.tolist()
-        except Exception as e:
-            logger.error(f"Failed to generate embedding: {e}")
-            return None
-    
-    def add_table_context(self, table_description: str, ddl: str, column_info: dict = None):
-        """
-        Add table metadata to knowledge base
-        
-        Args:
-            table_description: Description of the table
-            ddl: CREATE TABLE DDL statement
-            column_info: Dictionary of column metadata
-        """
-        try:
-            # Add DDL as SQL context
-            self.add_sql_context(ddl, table_description)
-            
-            # Add column information as documentation
-            if column_info:
-                col_docs = self._format_column_documentation(column_info)
-                self.add_documentation(col_docs, {"type": "column_metadata"})
-            
-            logger.info(f"Added table context: {table_description}")
-        except Exception as e:
-            logger.error(f"Failed to add table context: {e}")
-    
+    def _build_payload(self, request: LlmRequest, stream: bool = False) -> dict:
+        return {
+            "model": self.model,
+            "messages": [
+                {"role": msg.role, "content": msg.content}
+                for msg in request.messages
+            ],
+            "stream": stream,
+        }
+
     @staticmethod
-    def _format_column_documentation(column_info: dict) -> str:
-        """Format column information as documentation"""
-        doc_lines = ["Column Information:"]
-        for col_name, col_data in column_info.items():
-            col_type = col_data.get('type', 'unknown')
-            col_comment = col_data.get('comment', '')
-            doc_lines.append(f"- {col_name} ({col_type}): {col_comment}")
-        return "\n".join(doc_lines)
+    def _clean_usage(usage: dict) -> dict:
+        """
+        Hapus nested fields yang menyebabkan pydantic ValidationError.
+        Vanna 2.0 LlmResponse mengharapkan integer, bukan dict di token details.
+        """
+        cleaned = usage.copy()
+        cleaned.pop("prompt_tokens_details", None)
+        cleaned.pop("completion_tokens_details", None)
+        return cleaned
 
+    async def send_request(self, request: LlmRequest) -> LlmResponse:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers=self._headers(),
+                json=self._build_payload(request, stream=False),
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        content = data["choices"][0]["message"]["content"]
+        usage = self._clean_usage(data.get("usage", {}))
+
+        return LlmResponse(content=content, model=self.model, usage=usage)
+
+    async def stream_request(
+        self, request: LlmRequest
+    ) -> AsyncGenerator[LlmStreamChunk, None]:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/chat/completions",
+                headers=self._headers(),
+                json=self._build_payload(request, stream=True),
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if payload == "[DONE]":
+                        break
+                    chunk = json.loads(payload)
+                    delta = chunk["choices"][0].get("delta", {})
+                    if text := delta.get("content"):
+                        yield LlmStreamChunk(content=text)
+
+    def validate_tools(self, tools: list[ToolSchema]) -> list[str]:
+        # DeepSeek mendukung tool calling — semua tool valid
+        return []
+
+
+# ─────────────────────────────────────────────
+# 2. UserResolver
+#
+# Baca identity user dari header HTTP.
+# Sesuaikan dengan sistem auth Anda (JWT, cookie, OAuth, dll).
+# ─────────────────────────────────────────────
+
+class HeaderUserResolver(UserResolver):
+    """
+    Resolver sederhana berbasis header.
+    - X-User-Id   : user identifier (default: 'anonymous')
+    - X-Is-Admin  : 'true' untuk akses admin (default: user biasa)
+
+    Untuk production, ganti dengan validasi JWT/OAuth yang sebenarnya.
+    """
+
+    async def resolve_user(self, request_context: RequestContext) -> User:
+        user_id = request_context.get_header("X-User-Id") or "anonymous"
+        is_admin = request_context.get_header("X-Is-Admin", "").lower() == "true"
+        groups = ["admin", "user"] if is_admin else ["user"]
+        return User(
+            id=user_id,
+            email=f"{user_id}@app.local",
+            group_memberships=groups,
+        )
+
+
+# ─────────────────────────────────────────────
+# 3. BGE-M3 embedding function untuk ChromaDB
+# ─────────────────────────────────────────────
+
+def make_bge_m3_embedding(hf_api_url: str, hf_token: str):
+    """
+    Factory yang mengembalikan embedding function kompatibel ChromaDB.
+    ChromaDB mengharapkan format list[list[float]].
+    """
+
+    def bge_m3_embedding_function(texts: list[str]) -> list[list[float]]:
+        payload = {"inputs": texts, "options": {"wait_for_model": True}}
+        headers = {"Authorization": f"Bearer {hf_token}"}
+        try:
+            response = requests.post(
+                hf_api_url,
+                headers=headers,
+                json=payload,
+                timeout=20,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            # Validasi format output
+            if (
+                isinstance(result, list)
+                and len(result) > 0
+                and isinstance(result[0], list)
+            ):
+                return result
+
+            raise ValueError(
+                f"Format embedding tidak valid dari HuggingFace API: "
+                f"expected list[list[float]], got {type(result).__name__}"
+            )
+        except requests.RequestException as e:
+            logger.error(f"HuggingFace API request gagal: {e}")
+            raise
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"BGE-M3 embedding error: {e}")
+            raise
+
+    return bge_m3_embedding_function
+
+
+# ─────────────────────────────────────────────
+# 4. initialize_vanna — factory function utama
+#
+# Mengembalikan Agent (bukan VannaInstance 0.x).
+# Agent inilah yang dipanggil dari routes.py via agent.send_message().
+# ─────────────────────────────────────────────
 
 def initialize_vanna(
     mysql_host: str,
@@ -310,25 +258,90 @@ def initialize_vanna(
     mysql_password: str,
     mysql_database: str,
     mysql_port: int = 3306,
-    hf_token: str = '',
-    chromadb_path: str = './data/chromadb',
-    embedding_model: str = 'BAAI/bge-m3',
+    hf_token: str = "",
+    hf_api_url: str = "https://api-inference.huggingface.co/pipeline/feature-extraction/BAAI/bge-m3",
+    chromadb_path: str = "./data/chromadb",
+    embedding_model: str = "BAAI/bge-m3",  # dipertahankan untuk kompatibilitas config
     deepseek_api_key: str = None,
-    deepseek_api_base: str = None
-) -> VannaInstance:
-    """Factory function to initialize Vanna with DeepSeek LLM"""
-    config = VannaConfig(
-        mysql_host=mysql_host,
-        mysql_user=mysql_user,
-        mysql_password=mysql_password,
-        mysql_database=mysql_database,
-        mysql_port=mysql_port,
-        hf_token=hf_token,
-        chromadb_path=chromadb_path,
-        embedding_model=embedding_model
+    deepseek_api_base: str = "https://api.deepseek.com/v1",
+) -> Agent:
+    """
+    Inisialisasi dan kembalikan Vanna 2.0 Agent yang siap dipakai.
+
+    Komponen yang dibuat:
+    - DeepSeekLlmService   : LLM untuk generate SQL
+    - MySQLRunner          : koneksi dan eksekusi query ke MySQL
+    - ChromaAgentMemory    : vector store dengan BGE-M3 embedding
+    - ToolRegistry         : daftar tool yang bisa dipakai agent
+    - HeaderUserResolver   : identifikasi user dari request header
+    - Agent                : orkestrator utama Vanna 2.0
+
+    Returns:
+        Agent instance yang siap dipanggil via agent.send_message()
+    """
+    if not deepseek_api_key:
+        raise ValueError("deepseek_api_key wajib diisi untuk Vanna 2.0")
+
+    # Buat direktori ChromaDB jika belum ada
+    Path(chromadb_path).mkdir(parents=True, exist_ok=True)
+
+    # ── LLM ──────────────────────────────────
+    logger.info("Initializing DeepSeek LlmService...")
+    llm = DeepSeekLlmService(
+        api_key=deepseek_api_key,
+        base_url=deepseek_api_base,
     )
-    return VannaInstance(
-        config,
-        deepseek_api_key=deepseek_api_key,
-        deepseek_api_base=deepseek_api_base
+    logger.info("✓ DeepSeekLlmService ready")
+
+    # ── Database ─────────────────────────────
+    logger.info(f"Connecting to MySQL at {mysql_host}:{mysql_port}/{mysql_database}...")
+    db_tool = RunSqlTool(
+        sql_runner=MySQLRunner(
+            host=mysql_host,
+            port=mysql_port,
+            user=mysql_user,
+            password=mysql_password,
+            database=mysql_database,
+        )
     )
+    logger.info("✓ MySQLRunner ready")
+
+    # ── Agent Memory (ChromaDB + BGE-M3) ─────
+    logger.info(f"Initializing ChromaAgentMemory at {chromadb_path}...")
+    embedding_fn = make_bge_m3_embedding(hf_api_url, hf_token)
+    agent_memory = ChromaAgentMemory(
+        collection_name="vanna_tool_memory",
+        persist_directory=chromadb_path,
+        embedding_function=embedding_fn,
+    )
+    logger.info("✓ ChromaAgentMemory ready")
+
+    # ── Tool Registry ─────────────────────────
+    # Akses tool dikontrol via access_groups:
+    # - RunSqlTool              : semua user bisa eksekusi query
+    # - SaveQuestionToolArgsTool: hanya admin yang bisa simpan memory baru
+    # - SearchSavedCorrectTool  : semua user bisa cari dari memory
+    # - SaveTextMemoryTool      : semua user bisa simpan text memory (DDL, docs)
+    tools = ToolRegistry()
+    retrieval_tool = GetDdlFromMemoryTool()
+    tools.register_local_tool(retrieval_tool, access_groups=["admin", "user"])
+    tools.register_local_tool(db_tool, access_groups=["admin", "user"])
+    tools.register_local_tool(SaveQuestionToolArgsTool(), access_groups=["admin"])
+    tools.register_local_tool(
+        SearchSavedCorrectToolUsesTool(), access_groups=["admin", "user"]
+    )
+    tools.register_local_tool(
+        SaveTextMemoryTool(), access_groups=["admin", "user"]
+    )
+    logger.info("✓ ToolRegistry configured")
+
+    # ── Agent ─────────────────────────────────
+    agent = Agent(
+        llm_service=llm,
+        tool_registry=tools,
+        user_resolver=HeaderUserResolver(),
+        agent_memory=agent_memory,
+    )
+    logger.info("✓ Vanna 2.0 Agent ready — DeepSeek + ChromaDB(BGE-M3) + MySQL")
+
+    return agent
