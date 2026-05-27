@@ -28,6 +28,7 @@ def get_vanna_instance():
             mysql_password=current_app.config['MYSQL_PASSWORD'],
             mysql_database=current_app.config['MYSQL_DATABASE'],
             mysql_port=current_app.config['MYSQL_PORT'],
+            hf_token=current_app.config['HF_TOKEN'],
             chromadb_path=current_app.config['CHROMADB_PATH'],
             embedding_model=current_app.config['VANNA_EMBEDDING_MODEL'],
             deepseek_api_key=current_app.config.get('DEEPSEEK_API_KEY'),

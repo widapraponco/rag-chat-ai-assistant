@@ -6,6 +6,7 @@ import logging
 from typing import Optional
 import mysql.connector
 from pathlib import Path
+import requests
 
 # Vanna imports
 try:
@@ -21,7 +22,7 @@ except ImportError:
         VannaDB = None
 
 # Embeddings
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer
 
 # DeepSeek LLM
 from openai import OpenAI as DeepSeekClient  # DeepSeek uses OpenAI-compatible API
@@ -39,8 +40,10 @@ class VannaConfig:
         mysql_password: str,
         mysql_database: str,
         mysql_port: int = 3306,
+        hf_token: str = '',
         chromadb_path: str = './data/chromadb',
         embedding_model: str = 'BAAI/bge-m3',
+        hf_api_url: str = "https://huggingface.co",
     ):
         """Initialize Vanna configuration"""
         self.mysql_host = mysql_host
@@ -50,6 +53,8 @@ class VannaConfig:
         self.mysql_port = mysql_port
         self.chromadb_path = chromadb_path
         self.embedding_model = embedding_model
+        self.hf_api_url = hf_api_url
+        self.hf_token = hf_token
         
         # Create chromadb path if doesn't exist
         Path(chromadb_path).mkdir(parents=True, exist_ok=True)
@@ -96,9 +101,15 @@ class VannaInstance:
             logger.info("Initializing Vanna with BGE-M3 embeddings and DeepSeek LLM...")
             
             # Load BGE-M3 embedding model
-            logger.info(f"Loading embedding model: {self.config.embedding_model}")
-            self.embedding_model = SentenceTransformer(self.config.embedding_model)
-            logger.info("✓ BGE-M3 embedding model loaded")
+            # logger.info(f"Loading embedding model: {self.config.embedding_model}")
+            # self.embedding_model = SentenceTransformer(self.config.embedding_model)
+            # logger.info("✓ BGE-M3 embedding model loaded")
+            # logger.info(f"Initializing Cloud Embedding API: {self.config.embedding_model}")
+            # self.embedding_model = OpenAI_Embeddings(config={
+            #     'api_key': 'SK-ANDA-DI-SINI', 
+            #     'model': 'text-embedding-3-small'
+            # })
+            # logger.info("✓ text-embedding-3-small API initialized (No local RAM used)")
             
             # Initialize DeepSeek client if API key provided
             if self.deepseek_api_key:
@@ -116,8 +127,12 @@ class VannaInstance:
             
             # Define embedding function using the loaded BGE-M3 model
             def bge_m3_embedding_function(texts):
-                embeddings = self.embedding_model.encode(texts, normalize_embeddings=True)
-                return embeddings.tolist()
+                payload = {"inputs": texts, "options": {"wait_for_model": True}}
+                headers = {"Authorization": f"Bearer {self.config.hf_token}"}
+                response = requests.post(self.config.hf_api_url, headers=headers, json=payload)
+                return response.json()
+                # embeddings = self.embedding_model.encode(texts, normalize_embeddings=True)
+                # return embeddings.tolist()
             
             chroma = ChromaDB_VectorStore(config={
                 'path': self.config.chromadb_path,
@@ -295,6 +310,7 @@ def initialize_vanna(
     mysql_password: str,
     mysql_database: str,
     mysql_port: int = 3306,
+    hf_token: str = '',
     chromadb_path: str = './data/chromadb',
     embedding_model: str = 'BAAI/bge-m3',
     deepseek_api_key: str = None,
@@ -307,6 +323,7 @@ def initialize_vanna(
         mysql_password=mysql_password,
         mysql_database=mysql_database,
         mysql_port=mysql_port,
+        hf_token=hf_token,
         chromadb_path=chromadb_path,
         embedding_model=embedding_model
     )
