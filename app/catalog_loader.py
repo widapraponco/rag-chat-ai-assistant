@@ -1,16 +1,63 @@
 """
 Catalog loader - Extract table and column metadata from dbt catalog.json
 and prepare them for Vanna embedding and storage in ChromaDB.
+
+Supports both local file paths and HTTP URLs.
 """
 import json
 import os
+import logging
+import requests
 from typing import Dict, List, Tuple
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 class CatalogLoader:
     def __init__(self, catalog_path: str):
-        with open(catalog_path) as f:
-            self.catalog = json.load(f)
+        """
+        Load catalog from either HTTP URL or local file path.
+        
+        Args:
+            catalog_path: Either a local file path or HTTP(S) URL
+        """
+        self.catalog_path = catalog_path
+        self.catalog = self._load_catalog()
+    
+    def _load_catalog(self) -> dict:
+        """Load catalog from HTTP URL or local file."""
+        if self.catalog_path.startswith(('http://', 'https://')):
+            return self._load_from_http()
+        else:
+            return self._load_from_file()
+    
+    def _load_from_http(self) -> dict:
+        """Fetch catalog from HTTP URL."""
+        try:
+            logger.info(f"Loading catalog from HTTP: {self.catalog_path}")
+            response = requests.get(self.catalog_path, timeout=10)
+            response.raise_for_status()
+            catalog = response.json()
+            logger.info(f"✓ Catalog loaded from HTTP")
+            return catalog
+        except requests.RequestException as e:
+            logger.error(f"Failed to load catalog from HTTP: {e}")
+            raise
+    
+    def _load_from_file(self) -> dict:
+        """Load catalog from local file."""
+        try:
+            logger.info(f"Loading catalog from file: {self.catalog_path}")
+            with open(self.catalog_path) as f:
+                catalog = json.load(f)
+            logger.info(f"✓ Catalog loaded from file")
+            return catalog
+        except FileNotFoundError as e:
+            logger.error(f"Catalog file not found: {self.catalog_path}")
+            raise
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in catalog file: {e}")
+            raise
 
     def extract_table_descriptions(self):
         """
@@ -127,5 +174,5 @@ class CatalogLoader:
 
 
 def load_dbt_catalog(catalog_path: str) -> CatalogLoader:
-    """Factory function to load DBT catalog"""
+    """Factory function to load DBT catalog from local or HTTP source"""
     return CatalogLoader(catalog_path)
