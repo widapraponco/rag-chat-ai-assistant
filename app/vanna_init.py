@@ -6,16 +6,17 @@ import logging
 import asyncio
 import requests
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, List, Dict, Any
 
 import httpx
 
 # Vanna 2.0 core
 from vanna import Agent
 from vanna.core.llm import LlmService, LlmRequest, LlmResponse
-from vanna.core.llm.models import LlmStreamChunk
+from vanna.core.llm.models import LlmStreamChunk, LlmResponse, ToolCall
 from vanna.core.registry import ToolRegistry, ToolSchema
 from vanna.core.user import UserResolver, User, RequestContext
+from vanna.core.system_prompt import SystemPromptBuilder
 
 # Vanna 2.0 tools
 from vanna.tools import RunSqlTool
@@ -79,6 +80,45 @@ class GetDdlFromMemoryTool(Tool):
             return "\n\n".join(docs[:3])  # Return top 3 results
         except Exception as e:
             return f"Error retrieving DDL: {e}"
+
+# Di vanna_init.py — tambahkan class ini
+
+class SchemaAwareSystemPromptBuilder(SystemPromptBuilder):
+
+    def __init__(self, llm_service, db_name: str):
+        self.llm_service = llm_service
+        self.db_name = db_name
+
+    async def build_system_prompt(
+        self,
+        user: User,
+        tool_schemas: List[Any],
+    ) -> str:
+        logger.info(f"🔍 Tools available to agent: {[tool.name for tool in tool_schemas]}")
+        logger.info(f"🔍 schema_context length: {len(self.llm_service.schema_context)}")
+
+        schema = self.llm_service.schema_context or "(schema not loaded)"
+
+        prompt = f"""You are an expert SQL assistant for '{self.db_name}' MySQL database.
+
+    CRITICAL RULES:
+    - ONLY query THIS database: {self.db_name}
+    - NEVER answer from general knowledge or mention external companies
+    - ALWAYS use RunSqlTool to execute SQL — never fabricate results
+    - Table names MUST use schema prefix, example: {self.db_name}.table_name
+    - Use LIMIT 100 for SELECT unless user specifies otherwise
+
+    ## Available Tools
+    """
+        for tool in tool_schemas:
+            # ToolSchema adalah object — pakai attribute access, bukan dict
+            prompt += f"\n### {tool.name}\n"
+            prompt += f"{getattr(tool, 'description', '')}\n"
+
+        prompt += f"\n## Database Schema\n{schema}\n"
+        prompt += f"\n## Current User\nGroups: {', '.join(user.group_memberships)}\n"
+
+        return prompt
 # ─────────────────────────────────────────────
 # 1. DeepSeek LlmService
 #
@@ -95,13 +135,83 @@ class DeepSeekLlmService(LlmService):
     def __init__(
         self,
         api_key: str,
+        db_name,
         model: str = "deepseek-chat",
         base_url: str = "https://api.deepseek.com/v1",
+        schema_context = ''
     ):
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self.db_name = db_name
+        self.schema_context = schema_context
 
+    def get_system_prompt(self, context=None) -> str:
+        logger.info(f"✅ get_system_prompt called — schema_context length: {len(self.schema_context)}")
+        base = f"""You are an expert SQL assistant for the '{self.db_name}' MySQL database.
+
+    CRITICAL RULES:
+    - ONLY use dbt model tables — DO NOT query raw tables directly
+    - Table names use schema prefix: {self.db_name}.table_name  
+    - ALWAYS use RunSqlTool to execute SQL
+    - NEVER answer from general knowledge
+
+    ## Business Terms
+    - "karyawan" / "pegawai" / "employee" → kolom: nama_pegawai
+    - "jumlah karyawan" → COUNT(DISTINCT nama_pegawai)
+    - "performa" → kolom: kategori_performa
+    - "hadir" → kolom: total_hadir
+    - "terlambat" → kolom: total_menit_terlambat
+    - "cuti" → kolom: hari_cuti_disetujui"""
+
+    ## Database Schema
+    # {self.schema_context if self.schema_context else '(schema not loaded)'}"""
+
+        if self.schema_context:
+            return base + f"\n\nDatabase Schema:\n{self.schema_context}"
+        else:
+            return base + "\n\n⚠ Schema not loaded yet — ask user to check /api/debug/reseed"
+
+    def _get_messages_with_system(self, request: LlmRequest) -> list:
+        messages = []
+
+        for msg in request.messages:
+            if msg.role == "tool":
+                messages.append({
+                    "role": "tool",
+                    "content": msg.content or "",
+                    "tool_call_id": msg.tool_call_id or f"call_{hash(msg.content or '')}"
+                })
+            elif msg.role == "assistant" and msg.tool_calls:
+                tc_list = []
+                for tc in msg.tool_calls:
+                    tc_dict = tc.model_dump() if hasattr(tc, 'model_dump') else vars(tc)
+                    tc_list.append({
+                        "id": tc_dict.get("id", ""),
+                        "type": "function",
+                        "function": {
+                            "name": tc_dict.get("name", ""),
+                            "arguments": json.dumps(tc_dict.get("arguments", {}))
+                        }
+                    })
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": tc_list
+                })
+            else:
+                messages.append({
+                    "role": msg.role,
+                    "content": msg.content or ""
+                })
+
+        has_system = any(m.get("role") == "system" for m in messages)
+        if not has_system:
+            system = request.system_prompt or self.get_system_prompt()
+            messages.insert(0, {"role": "system", "content": system})
+
+        return messages
+    
     def _headers(self) -> dict:
         return {
             "Authorization": f"Bearer {self.api_key}",
@@ -130,41 +240,189 @@ class DeepSeekLlmService(LlmService):
         return cleaned
 
     async def send_request(self, request: LlmRequest) -> LlmResponse:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        messages = self._get_messages_with_system(request)
+        
+        if request.system_prompt:
+            has_system = any(m.get("role") == "system" for m in messages)
+            if not has_system:
+                messages.insert(0, {"role": "system", "content": request.system_prompt})
+
+        tools_payload = None
+        if request.tools:
+            tools_payload = []
+            for tool in request.tools:
+                td = tool.model_dump() if hasattr(tool, 'model_dump') else dict(tool)
+                tools_payload.append({
+                    "type": "function",
+                    "function": {
+                        "name": td.get("name"),
+                        "description": td.get("description", ""),
+                        "parameters": td.get("parameters") or td.get("input_schema") or {
+                            "type": "object", "properties": {}
+                        }
+                    }
+                })
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "temperature": request.temperature,
+        }
+        if request.max_tokens:
+            payload["max_tokens"] = request.max_tokens
+        if tools_payload:
+            payload["tools"] = tools_payload
+            payload["tool_choice"] = "auto"
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=self._headers(),
-                json=self._build_payload(request, stream=False),
+                json=payload,
             )
+            
+            # Log response error sebelum raise
+            if response.status_code >= 400:
+                logger.error(f"DeepSeek API error {response.status_code}: {response.text}")
+                logger.error(f"Payload sent: {json.dumps(payload, default=str)[:1000]}")
+            
             response.raise_for_status()
             data = response.json()
 
-        content = data["choices"][0]["message"]["content"]
+        choice = data["choices"][0]
+        message = choice["message"]
         usage = self._clean_usage(data.get("usage", {}))
 
-        return LlmResponse(content=content, model=self.model, usage=usage)
+        tool_calls = []
+        if message.get("tool_calls"):
+            for tc in message["tool_calls"]:
+                args = tc["function"]["arguments"]
+                if isinstance(args, str):
+                    args = json.loads(args)
+                tool_calls.append(ToolCall(
+                    id=tc["id"],
+                    name=tc["function"]["name"],
+                    arguments=args
+                ))
 
-    async def stream_request(
-        self, request: LlmRequest
-    ) -> AsyncGenerator[LlmStreamChunk, None]:
+        from vanna.core.llm.models import LlmResponse
+        return LlmResponse(
+            content=message.get("content"),
+            tool_calls=tool_calls or None,
+            model=self.model,
+            usage=usage,
+            finish_reason=choice.get("finish_reason")
+        )
+
+    async def stream_request(self, request: LlmRequest) -> AsyncGenerator[LlmStreamChunk, None]:
+        messages = self._get_messages_with_system(request)
+
+        # Cek apakah system_prompt sudah ada di request dari Vanna
+        if request.system_prompt:
+            logger.info(f"🔍 system_prompt from request: {request.system_prompt[:100]}")
+            # Pastikan tidak duplikat dengan yang sudah kita inject
+            has_system = any(m.get("role") == "system" for m in messages)
+            if not has_system:
+                messages.insert(0, {"role": "system", "content": request.system_prompt})
+        
+        # Konversi tools ke format OpenAI
+        tools_payload = None
+        if request.tools:
+            tools_payload = []
+            for tool in request.tools:
+                try:
+                    # ToolSchema — cek berbagai format
+                    if hasattr(tool, 'model_dump'):
+                        td = tool.model_dump()
+                    elif isinstance(tool, dict):
+                        td = tool
+                    else:
+                        td = dict(tool)
+
+                    logger.info(f"🔍 tool keys: {list(td.keys())}")
+
+                    # Format OpenAI function calling
+                    # Vanna ToolSchema kemungkinan punya: name, description, parameters
+                    tools_payload.append({
+                        "type": "function",
+                        "function": {
+                            "name": td.get("name"),
+                            "description": td.get("description", ""),
+                            "parameters": td.get("parameters") or td.get("input_schema") or {
+                                "type": "object",
+                                "properties": {}
+                            }
+                        }
+                    })
+                except Exception as e:
+                    logger.error(f"Failed to convert tool: {e} | tool={tool}")
+
+            logger.info(f"🔍 tools_payload: {[t['function']['name'] for t in tools_payload]}")
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "temperature": request.temperature,
+        }
+        if request.max_tokens:
+            payload["max_tokens"] = request.max_tokens
+        if tools_payload:
+            payload["tools"] = tools_payload
+            payload["tool_choice"] = "auto"
+
         async with httpx.AsyncClient(timeout=60.0) as client:
-            async with client.stream(
-                "POST",
+            response = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=self._headers(),
-                json=self._build_payload(request, stream=True),
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    payload = line[5:].strip()
-                    if payload == "[DONE]":
-                        break
-                    chunk = json.loads(payload)
-                    delta = chunk["choices"][0].get("delta", {})
-                    if text := delta.get("content"):
-                        yield LlmStreamChunk(content=text)
+                json=payload,
+            )
+            
+            # Log response error sebelum raise
+            if response.status_code >= 400:
+                logger.error(f"DeepSeek API error {response.status_code}: {response.text}")
+                logger.error(f"Payload sent: {json.dumps(payload, default=str)[:1000]}")
+            
+            response.raise_for_status()
+            data = response.json()
+
+        choice = data["choices"][0]
+        message = choice.get("message", {})
+        finish_reason = choice.get("finish_reason")
+
+        logger.info(f"🔍 finish_reason={finish_reason} | has_tool_calls={bool(message.get('tool_calls'))}")
+
+        if message.get("tool_calls"):
+            tool_calls = []
+            for tc in message["tool_calls"]:
+                try:
+                    args = tc["function"]["arguments"]
+                    if isinstance(args, str):
+                        args = json.loads(args)
+                    tool_calls.append(ToolCall(
+                        id=tc["id"],
+                        name=tc["function"]["name"],
+                        arguments=args
+                    ))
+                    logger.info(f"🔧 Tool call: {tc['function']['name']} | args={str(args)[:150]}")
+                except Exception as e:
+                    logger.error(f"Failed to parse tool call: {e}")
+
+            yield LlmStreamChunk(
+                content=message.get("content"),
+                tool_calls=tool_calls,
+                finish_reason=finish_reason
+            )
+        else:
+            content = message.get("content") or ""
+            words = content.split(" ")
+            for i, word in enumerate(words):
+                text = word if i == len(words) - 1 else word + " "
+                yield LlmStreamChunk(
+                    content=text,
+                    finish_reason=finish_reason if i == len(words) - 1 else None
+                )
 
     def validate_tools(self, tools: list[ToolSchema]) -> list[str]:
         # DeepSeek mendukung tool calling — semua tool valid
@@ -289,7 +547,10 @@ def initialize_vanna(
     logger.info("Initializing DeepSeek LlmService...")
     llm = DeepSeekLlmService(
         api_key=deepseek_api_key,
+        db_name=mysql_database,
+        model="deepseek-chat",
         base_url=deepseek_api_base,
+        schema_context=""  # Opsional: bisa diisi dengan schema DB untuk bantu LLM generate SQL lebih akurat
     )
     logger.info("✓ DeepSeekLlmService ready")
 
@@ -341,7 +602,14 @@ def initialize_vanna(
         tool_registry=tools,
         user_resolver=HeaderUserResolver(),
         agent_memory=agent_memory,
+        system_prompt_builder=SchemaAwareSystemPromptBuilder(
+            llm_service=llm,
+            db_name=mysql_database
+        ),
     )
     logger.info("✓ Vanna 2.0 Agent ready — DeepSeek + ChromaDB(BGE-M3) + MySQL")
+
+    
+    # logger.info("✅ system_prompt_builder overridden with schema context")
 
     return agent

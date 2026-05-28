@@ -106,8 +106,47 @@
         padding-left: 8px;
       }
 
+      .inline-status-bar {
+        display: none;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background: #fff3cd;
+        border-radius: 6px;
+        font-size: 12px;
+        color: #856404;
+        animation: fadeIn 0.2s ease;
+        margin-bottom: 6px;
+      }
+      .inline-status-bar.visible {
+        display: flex;
+      }
+      .inline-status-bar.status-idle {
+        background: #d4edda;
+        color: #155724;
+      }
+      .inline-status-bar.status-error {
+        background: #f8d7da;
+        color: #721c24;
+      }
+
+      /* ── Inline Task Tracker ── */
+      .inline-task-tracker {
+        display: none;
+        background: #f8f9fa;
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 12px;
+        border: 1px solid #e9ecef;
+        animation: fadeIn 0.2s ease;
+        margin-bottom: 6px;
+      }
+      .inline-task-tracker.visible {
+        display: block;
+      }
+
       /* ── Status Bar (Vanna 2.0) ── */
-      .status-bar {
+      /* .status-bar {
         display: none;
         align-items: center;
         gap: 8px;
@@ -118,7 +157,7 @@
         font-size: 13px;
         color: #856404;
         animation: fadeIn 0.2s ease;
-      }
+      } */
       .status-bar.visible {
         display: flex;
       }
@@ -140,7 +179,7 @@
       }
 
       /* ── Task Tracker (Vanna 2.0) ── */
-      .task-tracker {
+      /* .task-tracker {
         display: none;
         background: #f8f9fa;
         border-radius: 8px;
@@ -149,7 +188,7 @@
         font-size: 12px;
         border: 1px solid #e9ecef;
         animation: fadeIn 0.2s ease;
-      }
+      } */
       .task-tracker.visible {
         display: block;
       }
@@ -592,24 +631,78 @@
 
       const taskMap = new Map();
 
-      function getOrCreateTaskTracker() {
-        let el = document.getElementById("vanna-task-tracker");
+      function getOrCreateStatusBar(containerId) {
+        // Status bar mengikuti container pesan aktif, bukan fixed di atas
+        const container = document.getElementById(containerId);
+        if (!container) return null;
+
+        let content = container.querySelector(".message-content");
+        if (!content) {
+          content = document.createElement("div");
+          content.className = "message-content";
+          container.appendChild(content);
+        }
+
+        let el = content.querySelector(".inline-status-bar");
         if (!el) {
           el = document.createElement("div");
-          el.id = "vanna-task-tracker";
-          el.className = "task-tracker";
-          const statusBar = document.getElementById("vanna-status-bar");
-          if (statusBar && statusBar.nextSibling) {
-            chatArea.insertBefore(el, statusBar.nextSibling);
-          } else {
-            chatArea.appendChild(el);
-          }
+          el.className = "inline-status-bar";
+          content.insertBefore(el, content.firstChild);
         }
         return el;
       }
 
-      function renderTaskTracker(operation, task, taskId, status) {
-        const el = getOrCreateTaskTracker();
+      function renderStatusBar(status, message, detail, containerId) {
+        const el = getOrCreateStatusBar(containerId);
+        if (!el) return;
+
+        const icon =
+          status === "working"
+            ? '<span class="spinner"></span>'
+            : status === "idle"
+              ? "✅"
+              : status === "error"
+                ? "❌"
+                : "ℹ️";
+
+        el.className = `inline-status-bar visible status-${status}`;
+        el.innerHTML = `
+              ${icon}
+              <span>${escapeHtml(message || "")}</span>
+              ${detail ? `<span style="opacity:0.7;margin-left:4px;">— ${escapeHtml(detail)}</span>` : ""}
+          `;
+        scrollToBottom();
+
+        if (status === "idle") {
+          setTimeout(() => el.remove(), 1500);
+        }
+      }
+
+      // ── Task Tracker — ikuti container pesan aktif ───────────────────────────
+
+      function getOrCreateTaskTracker(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return null;
+
+        let content = container.querySelector(".message-content");
+        if (!content) {
+          content = document.createElement("div");
+          content.className = "message-content";
+          container.appendChild(content);
+        }
+
+        let el = content.querySelector(".inline-task-tracker");
+        if (!el) {
+          el = document.createElement("div");
+          el.className = "inline-task-tracker";
+          content.appendChild(el);
+        }
+        return el;
+      }
+
+      function renderTaskTracker(operation, task, taskId, status, containerId) {
+        const el = getOrCreateTaskTracker(containerId);
+        if (!el) return;
 
         if (operation === "add_task" && task) {
           taskMap.set(task.id, { ...task, status: task.status || "pending" });
@@ -624,7 +717,7 @@
         }
 
         if (taskMap.size === 0) {
-          el.classList.remove("visible");
+          el.remove();
           return;
         }
 
@@ -632,87 +725,126 @@
         const completedCount = tasks.filter(
           (t) => t.status === "completed",
         ).length;
+        const allDone = completedCount === tasks.length;
 
-        el.classList.add("visible");
+        el.className = "inline-task-tracker visible";
         el.innerHTML = `
-          <div class="task-tracker-header">Tasks (${completedCount}/${tasks.length})</div>
-          ${tasks
-            .map(
-              (t) => `
-            <div class="task-item task-${t.status}">
-              <span class="task-status-icon">
-                ${t.status === "completed" ? "✅" : t.status === "failed" ? "❌" : "⏳"}
-              </span>
-              <span class="task-title">${escapeHtml(t.title)}</span>
-            </div>
-          `,
-            )
-            .join("")}
-        `;
+              <div class="task-tracker-header">Tasks (${completedCount}/${tasks.length})</div>
+              ${tasks
+                .map(
+                  (t) => `
+                  <div class="task-item task-${t.status}">
+                      <span class="task-status-icon">
+                          ${t.status === "completed" ? "✅" : t.status === "failed" ? "❌" : "⏳"}
+                      </span>
+                      <span class="task-title">${escapeHtml(t.title)}</span>
+                  </div>
+              `,
+                )
+                .join("")}
+          `;
         scrollToBottom();
+
+        // Hilangkan task tracker setelah semua selesai
+        if (allDone) {
+          setTimeout(() => el.remove(), 1500);
+        }
       }
 
       function hideTaskTracker() {
-        const el = document.getElementById("vanna-task-tracker");
-        if (el) {
-          el.style.opacity = "0";
-          setTimeout(() => {
-            el.classList.remove("visible");
-            el.style.opacity = "1";
-          }, 300);
-        }
+        // Tidak perlu lagi — tracker per-message, hilang otomatis
       }
 
       // ── Component Renderers (Vanna 2.0 SSE) ──────────────────────────────────
 
       function handleComponent(component, containerId) {
-        /**
-         * Route setiap komponen Vanna 2.0 ke renderer yang sesuai.
-         * component bisa berupa root object atau rich_component langsung.
-         */
-        const rc = component.rich_component || component;
-        const type = rc.type || component.type;
+        const rc = component.rich_component || {};
+        const sc = component.simple_component || {};
+        const type = (rc.type || component.type || "")
+          .toLowerCase()
+          .replace("componenttype.", ""); // handle enum prefix
+
+        // Data bisa di rc.data atau langsung di sc
+        const rcData = rc.data || {};
+        const content =
+          rcData.content ||
+          rcData.text ||
+          rc.content ||
+          rc.text ||
+          sc.text ||
+          sc.content ||
+          "";
 
         switch (type) {
           case "status_bar_update":
-            renderStatusBar(rc.status, rc.message, rc.detail);
+            renderStatusBar(
+              rcData.status || rc.status,
+              rcData.message || rc.message,
+              rcData.detail || rc.detail,
+              containerId,
+            );
             break;
 
           case "task_tracker_update":
-            renderTaskTracker(rc.operation, rc.task, rc.task_id, rc.status);
+            renderTaskTracker(
+              rcData.operation || rc.operation,
+              rcData.task || rc.task,
+              rcData.task_id || rc.task_id,
+              rcData.status || rc.status,
+              containerId,
+            );
             break;
 
           case "chat_input_update":
-            if (rc.placeholder !== undefined) {
-              questionInput.placeholder = rc.placeholder;
-            }
-            if (rc.disabled !== undefined) {
-              questionInput.disabled = rc.disabled;
-            }
+            const placeholder = rcData.placeholder ?? rc.placeholder;
+            const disabled = rcData.disabled ?? rc.disabled;
+            if (placeholder !== undefined)
+              questionInput.placeholder = placeholder;
+            if (disabled !== undefined) questionInput.disabled = disabled;
             break;
 
           case "text":
-            renderText(rc, containerId);
+          case "rich_text":
+            if (content)
+              renderText(
+                { content, markdown: rcData.markdown ?? rc.markdown ?? false },
+                containerId,
+              );
             break;
 
           case "code":
           case "sql":
-            renderCode(rc, containerId);
+            const code =
+              rcData.code || rcData.sql || rcData.content || rc.code || content;
+            if (code)
+              renderCode({ content: code, code_language: "sql" }, containerId);
             break;
 
+          case "data_table":
           case "table":
-            renderTable(rc, containerId);
+            const rows = rcData.rows || rcData.data || rc.rows || [];
+            const columns = rcData.columns || rc.columns || [];
+            renderTable({ rows, columns }, containerId);
+            break;
+
+          case "status_card":
+            const cardStatus = rcData.status || rc.status || "";
+            if (!["running", "in_progress"].includes(cardStatus)) {
+              const title = rcData.title || rc.title || "";
+              const desc = rcData.description || rc.description || "";
+              if (title)
+                appendFallbackText(`🔧 ${title}: ${desc}`, containerId);
+            }
             break;
 
           case "error":
-            renderError(rc, containerId);
+            renderError({ content }, containerId);
             break;
 
           default:
-            console.warn("Unknown component type:", type, rc);
-            if (rc.content || rc.text) {
-              appendFallbackText(rc.content || rc.text, containerId);
-            }
+            // Fallback ke simple_component
+            if (content) appendFallbackText(content, containerId);
+            else console.warn("Unknown component:", type, rc, sc);
         }
       }
 
@@ -859,8 +991,8 @@
         isLoading = true;
         abortController = new AbortController();
         taskMap.clear();
-        hideStatusBar();
-        hideTaskTracker();
+        // hideStatusBar();
+        // hideTaskTracker();
 
         // UI: disable input, show cancel button
         questionInput.value = "";
@@ -953,10 +1085,10 @@
           }
 
           // Hide overlays after delay
-          setTimeout(() => {
-            hideStatusBar();
-            hideTaskTracker();
-          }, 2000);
+          // setTimeout(() => {
+          //   hideStatusBar();
+          //   hideTaskTracker();
+          // }, 2000);
         }
       }
 

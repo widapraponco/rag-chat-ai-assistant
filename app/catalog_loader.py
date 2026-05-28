@@ -7,151 +7,123 @@ import os
 from typing import Dict, List, Tuple
 from pathlib import Path
 
-
 class CatalogLoader:
-    """Load and parse dbt catalog.json for Vanna integration"""
-    
     def __init__(self, catalog_path: str):
+        with open(catalog_path) as f:
+            self.catalog = json.load(f)
+
+    def extract_table_descriptions(self):
         """
-        Initialize catalog loader
-        
-        Args:
-            catalog_path: Path to dbt catalog.json file
+        Prioritaskan nodes (dbt models) — ini yang kohesif dan siap diquery.
+        Fallback ke sources hanya jika tidak ada nodes sama sekali.
         """
-        self.catalog_path = catalog_path
-        self.catalog_data = self._load_catalog()
-        
-    def _load_catalog(self) -> Dict:
-        """Load catalog.json file"""
-        if not os.path.exists(self.catalog_path):
-            raise FileNotFoundError(f"Catalog not found: {self.catalog_path}")
-        
-        with open(self.catalog_path, 'r') as f:
-            return json.load(f)
-    
-    def get_sources(self) -> Dict[str, Dict]:
-        """Extract all sources from catalog"""
-        return self.catalog_data.get('sources', {})
-    
-    def get_models(self) -> Dict[str, Dict]:
-        """Extract all models from catalog"""
-        return self.catalog_data.get('nodes', {})
-    
-    def extract_table_descriptions(self) -> List[Tuple[str, str, str, Dict]]:
-        """
-        Extract table descriptions and column info for embedding
-        
-        Returns:
-            List of tuples: (table_name, schema_name, description, columns_dict)
-        """
-        tables = []
-        
-        # Extract from sources
-        for source_key, source_data in self.get_sources().items():
-            metadata = source_data.get('metadata', {})
-            table_name = metadata.get('name', '')
-            schema_name = metadata.get('schema', '')
-            database = metadata.get('database', '')
-            columns = source_data.get('columns', {})
+        results = []
+
+        # ── 1. dbt models (nodes) — PRIORITAS UTAMA ──────────────────────────
+        for key, node in self.catalog.get('nodes', {}).items():
+            meta = node.get('metadata', {})
+            schema = meta.get('schema', '')
+            table = meta.get('name', '')
             
-            # Create table description
-            table_desc = f"Table: {table_name} in schema {schema_name}"
-            if metadata.get('comment'):
-                table_desc += f". {metadata['comment']}"
+            # Buat deskripsi dari nama model — ubah snake_case ke kalimat
+            description = table.replace('_', ' ').title()
             
-            # Extract column info
-            column_info = {}
-            for col_name, col_data in columns.items():
-                col_type = col_data.get('type', 'unknown')
-                col_comment = col_data.get('comment', '')
-                column_info[col_name] = {
-                    'type': col_type,
-                    'comment': col_comment,
-                    'index': col_data.get('index', 0)
+            columns = node.get('columns', {})
+            col_list = [
+                {
+                    'name': col['name'],
+                    'type': col.get('type', ''),
+                    'comment': col.get('comment', '') or ''
                 }
-            
-            tables.append((table_name, schema_name, table_desc, column_info))
-        
-        # Extract from models
-        for model_key, model_data in self.get_models().items():
-            metadata = model_data.get('metadata', {})
-            table_name = metadata.get('name', '')
-            schema_name = metadata.get('schema', '')
-            database = metadata.get('database', '')
-            columns = model_data.get('columns', {})
-            
-            # Create table description
-            table_desc = f"Model: {table_name} in schema {schema_name}"
-            if metadata.get('comment'):
-                table_desc += f". {metadata['comment']}"
-            
-            # Extract column info
-            column_info = {}
-            for col_name, col_data in columns.items():
-                col_type = col_data.get('type', 'unknown')
-                col_comment = col_data.get('comment', '')
-                column_info[col_name] = {
-                    'type': col_type,
-                    'comment': col_comment,
-                    'index': col_data.get('index', 0)
-                }
-            
-            tables.append((table_name, schema_name, table_desc, column_info))
-        
-        return tables
-    
-    def get_table_schema_ddl(self) -> Dict[str, str]:
+                for col in columns.values()
+            ]
+            results.append((table, schema, description, col_list))
+
+        # ── 2. sources (raw tables) — hanya jika tidak ada nodes ─────────────
+        if not results:
+            for key, source in self.catalog.get('sources', {}).items():
+                meta = source.get('metadata', {})
+                schema = meta.get('schema', '')
+                table = meta.get('name', '')
+                description = f"Raw table: {table}"
+                columns = source.get('columns', {})
+                col_list = [
+                    {
+                        'name': col['name'],
+                        'type': col.get('type', ''),
+                        'comment': col.get('comment', '') or ''
+                    }
+                    for col in columns.values()
+                ]
+                results.append((table, schema, description, col_list))
+
+        return results
+
+    def get_table_schema_ddl(self) -> dict:
         """
-        Generate CREATE TABLE DDL statements from catalog
-        
-        Returns:
-            Dict mapping table names to DDL statements
+        Generate DDL dari nodes dbt — dengan deskripsi kolom yang informatif.
         """
-        ddl_statements = {}
-        
-        for table_name, schema_name, desc, columns in self.extract_table_descriptions():
-            full_table_name = f"{schema_name}.{table_name}" if schema_name else table_name
-            
-            # Build column definitions
+        ddl_map = {}
+
+        # Nodes dbt models
+        for key, node in self.catalog.get('nodes', {}).items():
+            meta = node.get('metadata', {})
+            schema = meta.get('schema', '')
+            table = meta.get('name', '')
+            full_key = f"{schema}.{table}"
+            columns = node.get('columns', {})
+
             col_defs = []
-            for col_name, col_info in sorted(columns.items(), key=lambda x: x[1]['index']):
-                col_type = col_info.get('type', 'VARCHAR(255)')
-                col_defs.append(f"  {col_name} {col_type}")
-            
-            # Generate DDL
-            ddl = f"CREATE TABLE {full_table_name} (\n"
+            for col in sorted(columns.values(), key=lambda c: c.get('index', 0)):
+                col_name = col['name']
+                col_type = col.get('type', 'varchar')
+                comment = col.get('comment', '')
+                # Tambahkan comment sebagai inline SQL comment jika ada
+                comment_str = f"  -- {comment}" if comment else ""
+                col_defs.append(f"  {col_name} {col_type}{comment_str}")
+
+            ddl = f"CREATE TABLE {full_key} (\n"
             ddl += ",\n".join(col_defs)
             ddl += "\n);"
-            
-            ddl_statements[full_table_name] = ddl
+            ddl_map[full_key] = ddl
+
+        # Fallback ke sources jika tidak ada nodes
+        if not ddl_map:
+            for key, source in self.catalog.get('sources', {}).items():
+                meta = source.get('metadata', {})
+                schema = meta.get('schema', '')
+                table = meta.get('name', '')
+                full_key = f"{schema}.{table}"
+                columns = source.get('columns', {})
+
+                col_defs = []
+                for col in sorted(columns.values(), key=lambda c: c.get('index', 0)):
+                    col_defs.append(f"  {col['name']} {col.get('type', 'varchar')}")
+
+                ddl = f"CREATE TABLE {full_key} (\n"
+                ddl += ",\n".join(col_defs)
+                ddl += "\n);"
+                ddl_map[full_key] = ddl
+
+        return ddl_map
+
+    def get_column_metadata(self) -> list:
+        """Return flat list of column metadata untuk endpoint /api/columns."""
+        results = []
         
-        return ddl_statements
-    
-    def get_column_metadata(self) -> List[Dict]:
-        """
-        Get detailed column metadata for embedding
-        
-        Returns:
-            List of column metadata dictionaries
-        """
-        column_metadata = []
-        
-        for table_name, schema_name, desc, columns in self.extract_table_descriptions():
-            for col_name, col_info in columns.items():
-                full_table = f"{schema_name}.{table_name}" if schema_name else table_name
-                
-                metadata_entry = {
-                    'table': full_table,
-                    'schema': schema_name,
-                    'table_name': table_name,
-                    'column': col_name,
-                    'type': col_info.get('type', 'unknown'),
-                    'description': col_info.get('comment', f'{col_name} column'),
-                    'full_text': f"Column {col_name} ({col_info.get('type', 'unknown')}) in {full_table}"
-                }
-                column_metadata.append(metadata_entry)
-        
-        return column_metadata
+        # Prioritaskan nodes
+        source = self.catalog.get('nodes', {}) or self.catalog.get('sources', {})
+        for key, node in source.items():
+            meta = node.get('metadata', {})
+            table = f"{meta.get('schema', '')}.{meta.get('name', '')}"
+            for col in node.get('columns', {}).values():
+                results.append({
+                    'table': table,
+                    'name': col['name'],
+                    'type': col.get('type', ''),
+                    'comment': col.get('comment', '') or ''
+                })
+        return results
 
 
 def load_dbt_catalog(catalog_path: str) -> CatalogLoader:
