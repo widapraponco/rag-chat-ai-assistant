@@ -19,6 +19,7 @@ chromadb>=0.4.24
 
 # MySQL connection
 mysql-connector-python>=9.7.0
+pymysql>=1.1.0
 
 # Utilities
 pandas>=2.2.3
