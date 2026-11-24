@@ -1,4 +1,4 @@
-# Soravisi SQL Chat API - Powered by DeepSeek
+# SQL Chat API - Powered by DeepSeek
 
 A Flask-based REST API for natural language to SQL generation and execution using:
 
